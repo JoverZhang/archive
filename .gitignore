@@ -1,3 +1,6 @@
+.idea
+.vscode
+
 a.out
 build/
-
+cmake-build-*/
