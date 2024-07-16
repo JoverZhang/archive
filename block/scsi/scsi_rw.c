@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 static const int BLOCK_SIZE = 512;
@@ -169,9 +171,75 @@ cleanup:
   return -1;
 }
 
+int scsi_mmap_read(char *blkname, int lba, int num_blocks) {
+  int fd = open(blkname, O_RDWR);
+  if (fd < 0) {
+    perror("open blkname");
+    return -1;
+  }
+
+  uint8_t *mmaped =
+      (uint8_t *)mmap(NULL, num_blocks * BLOCK_SIZE, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, fd, lba * BLOCK_SIZE);
+  if (mmaped == MAP_FAILED) {
+    perror("mmap");
+    goto cleanup;
+  }
+
+  for (int i = 0; i < num_blocks * BLOCK_SIZE; i++) {
+    printf("%02x ", mmaped[i]);
+    // 4K
+    if (i % (8 * BLOCK_SIZE) == 0) {
+      printf("\n");
+    }
+  }
+  printf("\n");
+
+  munmap(mmaped, num_blocks * BLOCK_SIZE);
+  close(fd);
+  return 0;
+
+cleanup:
+  if (mmaped != MAP_FAILED)
+    munmap(mmaped, num_blocks * BLOCK_SIZE);
+  close(fd);
+  return -1;
+}
+
+int scsi_mmap_write(char *blkname, int lba, int num_blocks) {
+  int fd = open(blkname, O_RDWR);
+  if (fd < 0) {
+    perror("open blkname");
+    return -1;
+  }
+
+  uint8_t *mmaped =
+      (uint8_t *)mmap(NULL, num_blocks * BLOCK_SIZE, PROT_READ | PROT_WRITE,
+                      MAP_SHARED, fd, lba * BLOCK_SIZE);
+  if (mmaped == MAP_FAILED) {
+    perror("mmap");
+    goto cleanup;
+  }
+
+  for (int i = 0; i < num_blocks * BLOCK_SIZE; i++) {
+    mmaped[i] = i % 0x100;
+  }
+
+  munmap(mmaped, num_blocks * BLOCK_SIZE);
+  close(fd);
+  return 0;
+
+cleanup:
+  if (mmaped != MAP_FAILED)
+    munmap(mmaped, num_blocks * BLOCK_SIZE);
+  close(fd);
+  return -1;
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 4) {
-    fprintf(stderr, "Usage: %s <blkname> <local_block_address> <num_blocks>\n",
+    fprintf(stderr,
+            "Usage: %s <blkname> <local_block_address> <num_blocks> [mmap]\n",
             argv[0]);
     return 1;
   }
@@ -179,13 +247,29 @@ int main(int argc, char *argv[]) {
   char *blkname = argv[1];
   int lba = atoi(argv[2]);
   int num_blocks = atoi(argv[3]);
+  int use_mmap = argc > 4 && strcmp(argv[4], "mmap") == 0;
 
-  if (scsi_cmd16_write(blkname, lba, num_blocks)) {
-    return -1;
-  }
+  if (use_mmap) {
+    printf("Using mmap\n");
 
-  if (scsi_cmd16_read(blkname, lba, num_blocks)) {
-    return -1;
+    if (scsi_mmap_write(blkname, lba, num_blocks)) {
+      return -1;
+    }
+
+    if (scsi_mmap_read(blkname, lba, num_blocks)) {
+      return -1;
+    }
+  } else {
+    printf("Using scsi_cmd16\n");
+    fflush(stdout);
+
+    if (scsi_cmd16_write(blkname, lba, num_blocks)) {
+      return -1;
+    }
+
+    if (scsi_cmd16_read(blkname, lba, num_blocks)) {
+      return -1;
+    }
   }
 
   return 0;
