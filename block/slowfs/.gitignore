@@ -1,0 +1,10 @@
+slowfs.ko
+slowfs.o
+
+*.mod*
+*.cmd
+
+Module.symvers
+modules.order
+
+compile_commands.json
